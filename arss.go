@@ -12,10 +12,12 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"strconv"
 )
 
 var DEBUG bool
 var STDOUT_OUTPUT bool
+var HTTP_PORT int
 
 var feedlist *FeedList
 var urlCh chan string
@@ -198,6 +200,7 @@ func articleProcessor() {
 func main() {
 	flag.BoolVar(&DEBUG, "debug", false, "Enable debugging output")
 	flag.BoolVar(&STDOUT_OUTPUT, "stdout", false, "Output to stdout")
+	flag.IntVar(&HTTP_PORT, "port", 8080, "HTTP server port")
 	flag.Parse()
 
 	urlCh = make(chan string, 1000)
@@ -218,5 +221,5 @@ func main() {
 	go feedDispatcher(feedlist, 4, 10)
 
 	http.HandleFunc("/", indexHandler)
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":"+strconv.Itoa(HTTP_PORT), nil)
 }
