@@ -18,9 +18,12 @@ var DEBUG bool
 var STDOUT_OUTPUT bool
 var HTTP_PORT int
 var RECENT_ITEM_COUNT int
+var STATE_FILENAME string
+var STATE_SAVE_FREQUENCY int
 
 var state *State
 var urlCh chan string
+var stdoutEmitterCh chan *goose.Article
 
 type TemplateData struct {
 	Message string
@@ -194,13 +197,19 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func articleProcessor() {
-	e := json.NewEncoder(os.Stdout)
 	g := goose.New()
 	for url := range urlCh {
+		article := g.ExtractFromUrl(url)
 		if STDOUT_OUTPUT {
-			article := g.ExtractFromUrl(url)
-			e.Encode(article)
+			stdoutEmitterCh <- article
 		}
+	}
+}
+
+func stdoutEmitter() {
+	e := json.NewEncoder(os.Stdout)
+	for article := range stdoutEmitterCh {
+		e.Encode(article)
 	}
 }
 
@@ -209,14 +218,20 @@ func main() {
 	flag.BoolVar(&STDOUT_OUTPUT, "stdout", false, "Output to stdout")
 	flag.IntVar(&HTTP_PORT, "port", 8080, "HTTP server port")
 	flag.IntVar(&RECENT_ITEM_COUNT, "recent", 20, "Number of recent items to display")
+	flag.StringVar(&STATE_FILENAME, "state_filename", "arss.state", "Filename in which to store the state")
+	flag.IntVar(&STATE_SAVE_FREQUENCY, "state_frequency", 60, "Frequency with which the state is saved (seconds)")
 	flag.Parse()
 
+	// Single stdoutEmitter to control access.
+	stdoutEmitterCh = make(chan *goose.Article, 1000)
+	go stdoutEmitter()
+
 	urlCh = make(chan string, 1000)
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 4; i++ {
 		go articleProcessor()
 	}
 
-	state = NewState(RECENT_ITEM_COUNT)
+	state = NewState(RECENT_ITEM_COUNT, STATE_FILENAME, STATE_SAVE_FREQUENCY)
 	// State.Subscribe("http://feeds.bbci.co.uk/news/rss.xml")
 	// State.Subscribe("http://feeds.mashable.com/Mashable")
 	// State.Subscribe("http://feeds2.feedburner.com/techradar/allnews")

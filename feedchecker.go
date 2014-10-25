@@ -6,19 +6,19 @@ import (
 	"time"
 )
 
-func feedDispatcher(feeds *State, poolcount int, sleeptime time.Duration) {
+func feedDispatcher(state *State, poolcount int, sleeptime time.Duration) {
 	sleepy := true
 	chkCh := make(chan string, 1000)
 
 	for i := 0; i < poolcount; i++ {
-		go feedChecker(chkCh, feeds)
+		go feedChecker(chkCh, state)
 	}
 
 	for {
 		//fmt.Fprintf(os.Stderr, "[i] LOOPING\n")
 		sleepy = true
-		feeds.Lock()
-		for url, feed := range feeds.Feeds {
+		state.Lock()
+		for url, feed := range state.Feeds {
 			var now = time.Now().Unix()
 			if feed.CheckDueAt != -1 && feed.CheckDueAt < now {
 				feed.CheckDueAt = -1
@@ -26,7 +26,7 @@ func feedDispatcher(feeds *State, poolcount int, sleeptime time.Duration) {
 				sleepy = false
 			}
 		}
-		feeds.Unlock()
+		state.Unlock()
 
 		if sleepy {
 			<-time.After(time.Duration(sleeptime * time.Second))
@@ -34,16 +34,16 @@ func feedDispatcher(feeds *State, poolcount int, sleeptime time.Duration) {
 	}
 }
 
-func feedChecker(linkChan chan string, feeds *State) {
+func feedChecker(linkChan chan string, state *State) {
 	for url := range linkChan {
 		if DEBUG {
 			fmt.Fprintf(os.Stderr, "[i] GETTING %s\n", url)
 		}
 
-		feeds.Lock()
-		feed := feeds.Feeds[url]
+		state.Lock()
+		feed := state.Feeds[url]
 		feed.CheckDueAt = -1
-		feeds.Unlock()
+		state.Unlock()
 
 		if DEBUG {
 			fmt.Fprintf(os.Stderr, "[i] CHECKING %s\n", url)
