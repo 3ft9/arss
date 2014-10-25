@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func feedDispatcher(feeds *FeedList, poolcount int, sleeptime time.Duration) {
+func feedDispatcher(feeds *State, poolcount int, sleeptime time.Duration) {
 	sleepy := true
 	chkCh := make(chan string, 1000)
 
@@ -34,7 +34,7 @@ func feedDispatcher(feeds *FeedList, poolcount int, sleeptime time.Duration) {
 	}
 }
 
-func feedChecker(linkChan chan string, feeds *FeedList) {
+func feedChecker(linkChan chan string, feeds *State) {
 	for url := range linkChan {
 		if DEBUG {
 			fmt.Fprintf(os.Stderr, "[i] GETTING %s\n", url)

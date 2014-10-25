@@ -5,26 +5,26 @@ import (
 	"flag"
 	"fmt"
 	"github.com/3ft9/GoOse"
-	rss "github.com/jteeuwen/go-pkg-rss"
 	"html/template"
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
-	"strconv"
 )
 
 var DEBUG bool
 var STDOUT_OUTPUT bool
 var HTTP_PORT int
+var RECENT_ITEM_COUNT int
 
-var feedlist *FeedList
+var state *State
 var urlCh chan string
 
 type TemplateData struct {
 	Message string
-	Feeds   *FeedList
+	State   *State
 }
 
 func displayTemplate(w http.ResponseWriter, data *TemplateData, tableonly bool) {
@@ -73,7 +73,7 @@ func displayTemplate(w http.ResponseWriter, data *TemplateData, tableonly bool) 
 		fmt.Fprintf(w, "    <div id=\"feedstable\">\n")
 	}
 
-	if len(data.Feeds.Feeds) == 0 {
+	if len(data.State.Feeds) == 0 {
 		fmt.Fprintf(w, "    <p>None, yet.</p>\n")
 	} else {
 		fmt.Fprintf(w, "    <table>\n")
@@ -86,7 +86,8 @@ func displayTemplate(w http.ResponseWriter, data *TemplateData, tableonly bool) 
 
 		now := time.Now().Unix()
 		var keys []string
-		for k, v := range data.Feeds.Feeds {
+		data.State.Lock()
+		for k, v := range data.State.Feeds {
 			key := ""
 			if len(v.Object.Channels) > 0 {
 				key += v.Object.Channels[0].Title
@@ -94,27 +95,28 @@ func displayTemplate(w http.ResponseWriter, data *TemplateData, tableonly bool) 
 			key += "&|&|&|&|&" + k
 			keys = append(keys, key)
 		}
+		data.State.Unlock()
 		sort.Strings(keys)
 
 		var totalcount int64 = 0
 
 		for _, url := range keys {
 			url = strings.Split(url, "&|&|&|&|&")[1]
-			totalcount += data.Feeds.Feeds[url].ArticleCount
+			totalcount += data.State.Feeds[url].ArticleCount
 
 			fmt.Fprintf(w, "      <tr>\n")
-			if len(data.Feeds.Feeds[url].Object.Channels) > 0 {
-				fmt.Fprintf(w, "        <td>%s</td>\n", template.HTMLEscapeString(data.Feeds.Feeds[url].Object.Channels[0].Title))
+			if len(data.State.Feeds[url].Object.Channels) > 0 {
+				fmt.Fprintf(w, "        <td>%s</td>\n", template.HTMLEscapeString(data.State.Feeds[url].Object.Channels[0].Title))
 			} else {
 				fmt.Fprintf(w, "        <td>-</td>\n")
 			}
 			fmt.Fprintf(w, "        <td>%s</td>\n", template.HTMLEscapeString(url))
-			fmt.Fprintf(w, "        <td align=\"right\">%d</td>\n", data.Feeds.Feeds[url].ArticleCount)
-			due := data.Feeds.Feeds[url].CheckDueAt - now
+			fmt.Fprintf(w, "        <td align=\"right\">%d</td>\n", data.State.Feeds[url].ArticleCount)
+			due := data.State.Feeds[url].CheckDueAt - now
 			if due < 5 {
 				fmt.Fprintf(w, "        <td align=\"right\">due now</td>\n")
 			} else {
-				fmt.Fprintf(w, "        <td align=\"right\">%d secs</td>\n", data.Feeds.Feeds[url].CheckDueAt-now)
+				fmt.Fprintf(w, "        <td align=\"right\">%d secs</td>\n", data.State.Feeds[url].CheckDueAt-now)
 			}
 			fmt.Fprintf(w, "        <td><form method=\"post\" action=\"/\"><input type=\"hidden\" name=\"url\" value=\"%s\" /><input type=\"submit\" name=\"op\" value=\"Unsubscribe\" /></form></td>\n", template.HTMLEscapeString(url))
 			fmt.Fprintf(w, "      </tr>\n")
@@ -126,6 +128,26 @@ func displayTemplate(w http.ResponseWriter, data *TemplateData, tableonly bool) 
 		fmt.Fprintf(w, "      </tr>\n")
 		fmt.Fprintf(w, "    </table>\n")
 	}
+
+	fmt.Fprintf(w, "    <h2>Recent Items</h2>")
+	fmt.Fprintf(w, "    <ul>")
+	items := []string{}
+	data.State.Lock()
+	data.State.Recent.Do(func(ringitem interface{}) {
+		if ringitem != nil {
+			item := ringitem.(RecentItem)
+			items = append(items, fmt.Sprintf("        <li><a href=\"%s\" target=\"_blank\"\">%s: %s</a></li>", template.HTMLEscapeString(item.Url), template.HTMLEscapeString(item.Source), template.HTMLEscapeString(item.Title)))
+		}
+	})
+	data.State.Unlock()
+	if len(items) == 0 {
+		fmt.Fprintf(w, "        <li>None, yet.</li>")
+	} else {
+		for idx := len(items) - 1; idx >= 0; idx-- {
+			fmt.Fprintf(w, items[idx])
+		}
+	}
+	fmt.Fprintf(w, "    </ul>")
 
 	if !tableonly {
 		fmt.Fprintf(w, "    </div>\n")
@@ -157,10 +179,10 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 			msg = "Please specify a URL!"
 		} else {
 			if op == "Subscribe" {
-				feedlist.Subscribe(url)
+				state.Subscribe(url)
 				http.Redirect(w, r, "/", 302)
 			} else if op == "Unsubscribe" {
-				feedlist.Unsubscribe(url)
+				state.Unsubscribe(url)
 				http.Redirect(w, r, "/", 302)
 			} else {
 				msg = "Unknown operation: [" + op + "]"
@@ -168,22 +190,7 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	feedlist.Lock()
-	displayTemplate(w, &TemplateData{Message: msg, Feeds: feedlist}, r.URL.Query().Get("ajax") == "1")
-	feedlist.Unlock()
-}
-
-func channelHandler(feed *rss.Feed, newchannels []*rss.Channel) {
-	//fmt.Printf("%d new channel(s) in %s\n", len(newchannels), feed.Url)
-}
-
-func itemHandler(feed *rss.Feed, ch *rss.Channel, newitems []*rss.Item) {
-	for _, item := range newitems {
-		if len(item.Links) > 0 {
-			feedlist.Feeds[feed.Url].ArticleCount += 1
-			urlCh <- item.Links[0].Href
-		}
-	}
+	displayTemplate(w, &TemplateData{Message: msg, State: state}, r.URL.Query().Get("ajax") == "1")
 }
 
 func articleProcessor() {
@@ -201,6 +208,7 @@ func main() {
 	flag.BoolVar(&DEBUG, "debug", false, "Enable debugging output")
 	flag.BoolVar(&STDOUT_OUTPUT, "stdout", false, "Output to stdout")
 	flag.IntVar(&HTTP_PORT, "port", 8080, "HTTP server port")
+	flag.IntVar(&RECENT_ITEM_COUNT, "recent", 20, "Number of recent items to display")
 	flag.Parse()
 
 	urlCh = make(chan string, 1000)
@@ -208,17 +216,17 @@ func main() {
 		go articleProcessor()
 	}
 
-	feedlist = NewFeedList()
-	// feedlist.Subscribe("http://feeds.bbci.co.uk/news/rss.xml")
-	// feedlist.Subscribe("http://feeds.mashable.com/Mashable")
-	// feedlist.Subscribe("http://feeds2.feedburner.com/techradar/allnews")
-	// feedlist.Subscribe("http://feeds.feedburner.com/TechCrunch/")
-	// feedlist.Subscribe("http://www.cnet.com/rss/news/")
-	// feedlist.Subscribe("http://www.computerweekly.com/rss/All-Computer-Weekly-content.xml")
-	// feedlist.Subscribe("http://www.zdnet.com/news/rss.xml")
-	// feedlist.Subscribe("http://feeds.wired.com/wired/index")
+	state = NewState(RECENT_ITEM_COUNT)
+	// State.Subscribe("http://feeds.bbci.co.uk/news/rss.xml")
+	// State.Subscribe("http://feeds.mashable.com/Mashable")
+	// State.Subscribe("http://feeds2.feedburner.com/techradar/allnews")
+	// State.Subscribe("http://feeds.feedburner.com/TechCrunch/")
+	// State.Subscribe("http://www.cnet.com/rss/news/")
+	// State.Subscribe("http://www.computerweekly.com/rss/All-Computer-Weekly-content.xml")
+	// State.Subscribe("http://www.zdnet.com/news/rss.xml")
+	// State.Subscribe("http://feeds.wired.com/wired/index")
 
-	go feedDispatcher(feedlist, 4, 10)
+	go feedDispatcher(state, 4, 10)
 
 	http.HandleFunc("/", indexHandler)
 	http.ListenAndServe(":"+strconv.Itoa(HTTP_PORT), nil)
