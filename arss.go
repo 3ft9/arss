@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/3ft9/GoOse"
+	zmq "github.com/pebbe/zmq4"
 	"html/template"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 var DEBUG bool
 var STDOUT_OUTPUT bool
+var ZMQ_PUB_ADDRESS string
 var HTTP_PORT int
 var RECENT_ITEM_COUNT int
 var STATE_FILENAME string
@@ -24,6 +26,7 @@ var STATE_SAVE_FREQUENCY int
 var state *State
 var urlCh chan string
 var stdoutEmitterCh chan *goose.Article
+var zmqEmitterCh chan *goose.Article
 
 type TemplateData struct {
 	Message string
@@ -204,6 +207,9 @@ func articleProcessor() {
 		if STDOUT_OUTPUT {
 			stdoutEmitterCh <- article
 		}
+		if len(ZMQ_PUB_ADDRESS) > 0 {
+			zmqEmitterCh <- article
+		}
 	}
 }
 
@@ -214,9 +220,24 @@ func stdoutEmitter() {
 	}
 }
 
+func zmqEmitter() {
+	publisher, _ := zmq.NewSocket(zmq.PUB)
+	defer publisher.Close()
+	publisher.Bind(ZMQ_PUB_ADDRESS)
+	for article := range zmqEmitterCh {
+		output, err := json.Marshal(article)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[e] %s\n", err)
+		} else {
+			publisher.Send(string(output), 0)
+		}
+	}
+}
+
 func main() {
 	flag.BoolVar(&DEBUG, "debug", false, "Enable debugging output")
 	flag.BoolVar(&STDOUT_OUTPUT, "stdout", false, "Output to stdout")
+	flag.StringVar(&ZMQ_PUB_ADDRESS, "zmq_pub_address", "", "ZMQ publish address, default is none (disabled)")
 	flag.IntVar(&HTTP_PORT, "port", 8080, "HTTP server port")
 	flag.IntVar(&RECENT_ITEM_COUNT, "recent", 20, "Number of recent items to display")
 	flag.StringVar(&STATE_FILENAME, "state_filename", "arss.state", "Filename in which to store the state")
@@ -224,8 +245,16 @@ func main() {
 	flag.Parse()
 
 	// Single stdoutEmitter to control access.
-	stdoutEmitterCh = make(chan *goose.Article, 1000)
-	go stdoutEmitter()
+	if STDOUT_OUTPUT {
+		stdoutEmitterCh = make(chan *goose.Article, 1000)
+		go stdoutEmitter()
+	}
+
+	// Single ZMQ to control access.
+	if len(ZMQ_PUB_ADDRESS) > 0 {
+		zmqEmitterCh = make(chan *goose.Article, 1000)
+		go zmqEmitter()
+	}
 
 	urlCh = make(chan string, 1000)
 	for i := 0; i < 4; i++ {
