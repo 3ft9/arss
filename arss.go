@@ -120,11 +120,11 @@ func displayTemplate(w http.ResponseWriter, data *TemplateData, tableonly bool) 
 			fmt.Fprintf(w, "        <td>%s</td>\n", template.HTMLEscapeString(url))
 			fmt.Fprintf(w, "        <td align=\"right\">%d</td>\n", data.State.Feeds[url].ArticleCount)
 			due := data.State.Feeds[url].CheckDueAt - now
-			if due < 5 {
-				fmt.Fprintf(w, "        <td align=\"right\">due now</td>\n")
-			} else {
-				fmt.Fprintf(w, "        <td align=\"right\">%d secs</td>\n", data.State.Feeds[url].CheckDueAt-now)
-			}
+			// if due < 5 {
+			// 	fmt.Fprintf(w, "        <td align=\"right\">due now</td>\n")
+			// } else {
+			fmt.Fprintf(w, "        <td align=\"right\">%d secs</td>\n", due)
+			// }
 			fmt.Fprintf(w, "        <td><form method=\"post\" action=\"/\"><input type=\"hidden\" name=\"url\" value=\"%s\" /><input type=\"submit\" name=\"op\" value=\"Unsubscribe\" /></form></td>\n", template.HTMLEscapeString(url))
 			fmt.Fprintf(w, "      </tr>\n")
 		}
