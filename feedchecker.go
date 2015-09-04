@@ -20,7 +20,15 @@ func feedDispatcher(state *State, poolcount int, sleeptime time.Duration) {
 		state.Lock()
 		for url, feed := range state.Feeds {
 			var now = time.Now().Unix()
+			if DEBUG {
+				if feed.CheckDueAt < 0 {
+					fmt.Fprintf(os.Stdout, "[i] CHECKING %s [%d < %d = %d]\n", url, feed.CheckDueAt, now, now - feed.CheckDueAt);
+				}
+			}
 			if feed.CheckDueAt != -1 && feed.CheckDueAt < now {
+				if DEBUG {
+					fmt.Fprintf(os.Stdout, "[i] QUEUEING %s\n", url)
+				}
 				feed.CheckDueAt = -1
 				chkCh <- url
 				sleepy = false
@@ -37,7 +45,7 @@ func feedDispatcher(state *State, poolcount int, sleeptime time.Duration) {
 func feedChecker(linkChan chan string, state *State) {
 	for url := range linkChan {
 		if DEBUG {
-			fmt.Fprintf(os.Stderr, "[i] GETTING %s\n", url)
+			fmt.Fprintf(os.Stdout, "[i] GETTING %s\n", url)
 		}
 
 		state.Lock()
@@ -46,7 +54,7 @@ func feedChecker(linkChan chan string, state *State) {
 		state.Unlock()
 
 		if DEBUG {
-			fmt.Fprintf(os.Stderr, "[i] CHECKING %s\n", url)
+			fmt.Fprintf(os.Stdout, "[i] CHECKING %s\n", url)
 		}
 
 		if err := feed.Object.Fetch(url, nil); err != nil {
@@ -57,7 +65,7 @@ func feedChecker(linkChan chan string, state *State) {
 		}
 
 		if DEBUG {
-			fmt.Fprintf(os.Stderr, "[i] SCHEDULING %s for %d\n", url, feed.Object.SecondsTillUpdate())
+			fmt.Fprintf(os.Stdout, "[i] SCHEDULING %s for %d\n", url, feed.Object.SecondsTillUpdate())
 		}
 
 		feed.CheckDueAt = time.Now().Unix() + feed.Object.SecondsTillUpdate()
