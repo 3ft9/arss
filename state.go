@@ -85,6 +85,16 @@ func (this *State) ItemHandler(feed *rss.Feed, ch *rss.Channel, newitems []*rss.
 			this.Feeds[feed.Url].Guids.Value = guid
 			this.Feeds[feed.Url].Guids = this.Feeds[feed.Url].Guids.Next()
 			if len(item.Links) > 0 {
+				Stats(CONNECT_API_KEY, CONNECT_PROJECT_ID, CONNECT_COLLECTION, map[string]interface{}{
+					"feedUrl":   feed.Url,
+					"feedTitle": ch.Title,
+					"action":    "newItem",
+					"article": map[string]interface{}{
+						"url":   item.Links[0].Href,
+						"title": item.Title,
+					},
+				})
+
 				this.Feeds[feed.Url].ArticleCount += 1
 				urlCh <- item.Links[0].Href
 				// Add to recent items.

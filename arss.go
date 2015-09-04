@@ -23,6 +23,10 @@ var RECENT_ITEM_COUNT int
 var STATE_FILENAME string
 var STATE_SAVE_FREQUENCY int
 
+var CONNECT_API_KEY string
+var CONNECT_PROJECT_ID string
+var CONNECT_COLLECTION string
+
 var state *State
 var urlCh chan string
 var stdoutEmitterCh chan *goose.Article
@@ -204,6 +208,7 @@ func articleProcessor() {
 	g := goose.New()
 	for url := range urlCh {
 		article := g.ExtractFromUrl(url)
+		article.RawHtml = ""
 		if STDOUT_OUTPUT {
 			stdoutEmitterCh <- article
 		}
@@ -242,6 +247,11 @@ func main() {
 	flag.IntVar(&RECENT_ITEM_COUNT, "recent", 20, "Number of recent items to display")
 	flag.StringVar(&STATE_FILENAME, "state_filename", "arss.state", "Filename in which to store the state")
 	flag.IntVar(&STATE_SAVE_FREQUENCY, "state_frequency", 60, "Frequency with which the state is saved (seconds)")
+
+	flag.StringVar(&CONNECT_API_KEY, "connect_api_key", "", "API key for the Connect stats collection service, default is none (disabled)")
+	flag.StringVar(&CONNECT_PROJECT_ID, "connect_project_id", "", "Project ID for the Connect stats collection service")
+	flag.StringVar(&CONNECT_COLLECTION, "connect_collection", "", "Collection for the Connect stats collection service")
+
 	flag.Parse()
 
 	// Single stdoutEmitter to control access.

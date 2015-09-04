@@ -22,13 +22,19 @@ func feedDispatcher(state *State, poolcount int, sleeptime time.Duration) {
 			var now = time.Now().Unix()
 			if DEBUG {
 				if feed.CheckDueAt < 0 {
-					fmt.Fprintf(os.Stdout, "[i] CHECKING %s [%d < %d = %d]\n", url, feed.CheckDueAt, now, now - feed.CheckDueAt);
+					fmt.Fprintf(os.Stdout, "[i] CHECKING %s [%d < %d = %d]\n", url, feed.CheckDueAt, now, now-feed.CheckDueAt)
 				}
 			}
 			if feed.CheckDueAt != -1 && feed.CheckDueAt < now {
 				if DEBUG {
 					fmt.Fprintf(os.Stdout, "[i] QUEUEING %s\n", url)
 				}
+				Stats(CONNECT_API_KEY, CONNECT_PROJECT_ID, CONNECT_COLLECTION, map[string]interface{}{
+					"feed":      url,
+					"action":    "queueing",
+					"overdueBy": now - feed.CheckDueAt,
+				})
+
 				feed.CheckDueAt = -1
 				chkCh <- url
 				sleepy = false
@@ -47,6 +53,10 @@ func feedChecker(linkChan chan string, state *State) {
 		if DEBUG {
 			fmt.Fprintf(os.Stdout, "[i] GETTING %s\n", url)
 		}
+		Stats(CONNECT_API_KEY, CONNECT_PROJECT_ID, CONNECT_COLLECTION, map[string]interface{}{
+			"feed":   url,
+			"action": "checking",
+		})
 
 		state.Lock()
 		feed := state.Feeds[url]
